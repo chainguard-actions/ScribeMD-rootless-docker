@@ -1,0 +1,88 @@
+name: Rootless Docker
+author: Kurt von Laven
+description: Run Docker in Rootless Mode to Prevent Permission Errors
+branding:
+  icon: lock
+  color: blue
+runs:
+  using: composite
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - name: Check whether rootless Docker is already installed and/or in-use.
+      id: rootless-docker
+      run: |
+        in_use='false'
+        if docker context ls --format '{{ .Name }}' | grep --quiet '^rootless$'
+        then
+          installed='true'
+          if [[ "$(docker info --format '{{ .ClientInfo.Context }}')" == 'rootless' ]]
+          then
+            in_use='true'
+          fi
+        else
+          installed='false'
+        fi
+        echo "INSTALLED=$installed" >>"$GITHUB_OUTPUT"
+        echo "IN_USE=$in_use" >>"$GITHUB_OUTPUT"
+      shell: bash
+    - name: Stop rootful Docker daemon.
+      if: steps.rootless-docker.outputs.IN_USE != 'true'
+      run: sudo systemctl stop docker.service
+      shell: bash
+    - name: Install rootless Docker, start daemon, and wait until it's listening.
+      if: steps.rootless-docker.outputs.INSTALLED != 'true'
+      run: |
+        echo ~/bin >>"$GITHUB_PATH"
+        if [[ -z $XDG_RUNTIME_DIR ]]; then
+          XDG_RUNTIME_DIR=~/.docker/run
+          echo XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" >>"$GITHUB_ENV"
+        fi
+        function awaitDockerd() {
+          while IFS= read -r -t 60 line; do
+            echo "$line"
+            [[ "$line" = *"API listen on $XDG_RUNTIME_DIR/docker.sock"* ]] && return
+          done
+          echo 'Timed out waiting for Docker daemon to listen.' >&2
+          return 1
+        }
+
+        curl \
+          --fail \
+          --silent \
+          --show-error \
+          --location https://get.docker.com/rootless \
+          --output /tmp/rootless-docker-install.sh
+        chmod +x /tmp/rootless-docker-install.sh
+        install_script_output="$(sh /tmp/rootless-docker-install.sh)"
+        rm -f /tmp/rootless-docker-install.sh
+        echo "$install_script_output"
+        docker context use rootless
+        if grep --quiet 'systemd not detected, dockerd-rootless.sh needs to be started manually' <<<"$install_script_output"; then
+          (PATH="/sbin:/usr/sbin:$PATH" dockerd-rootless.sh &) |&
+          awaitDockerd
+        fi
+      env:
+        FORCE_ROOTLESS_INSTALL: "1"
+      shell: bash
+    - name: Proxy bidirectionally between rootful and rootless Docker sockets.
+      if: steps.rootless-docker.outputs.IN_USE != 'true'
+      run: >
+        sudo systemd-run --unit=docker-proxy.service --description='Bidirectional proxy between rootful and rootless Docker sockets' --service-type=exec --property=Requires=docker.socket --property=PrivateNetwork=true --property=PrivateTmp=true /lib/systemd/systemd-socket-proxyd "$XDG_RUNTIME_DIR/docker.sock"
+
+      shell: bash
