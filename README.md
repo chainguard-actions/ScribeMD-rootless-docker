@@ -8,6 +8,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
+| 0.1.6 | [`0.1.6`](https://github.com/chainguard-actions/ScribeMD-rootless-docker/tree/0.1.6) | [`4a46688`](https://github.com/ScribeMD/rootless-docker/commit/4a466880cd718b3a5affe554dfc46f4108c144b1) |
 | 0.1.7 | [`0.1.7`](https://github.com/chainguard-actions/ScribeMD-rootless-docker/tree/0.1.7) | [`e6a76cf`](https://github.com/ScribeMD/rootless-docker/commit/e6a76cfc95b2a2327ec36437134a42af5b9ddf30) |
 | 0.2.0 | [`0.2.0`](https://github.com/chainguard-actions/ScribeMD-rootless-docker/tree/0.2.0) | [`f0132c2`](https://github.com/ScribeMD/rootless-docker/commit/f0132c2ebe46bb0625bbedb13eebb0ec91e25a97) |
 | 0.2.1 | [`0.2.1`](https://github.com/chainguard-actions/ScribeMD-rootless-docker/tree/0.2.1) | — |
