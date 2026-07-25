@@ -1,0 +1,26 @@
+[build-system]
+requires = ["poetry-core>=1.0.8"]
+build-backend = "poetry.core.masonry.api"
+
+[tool]
+  [tool.commitizen]
+  version = "0.1.6"
+  version_files = [
+    "pyproject.toml:version",
+    "README.md:rootless-docker@"
+  ]
+
+  [tool.poetry]
+  name = "rootless-docker"
+  version = "0.1.6"
+  description = "Run Docker in Rootless Mode to Prevent Permission Errors"
+  authors = ["Kurt von Laven <kurt.von.laven@gmail.com>"]
+  license = "MIT"
+
+  [tool.poetry.dependencies]
+  # Keep in sync with .pre-commit-config.yaml and .tool-versions.
+  python = "^3.10.5"
+
+  [tool.poetry.dev-dependencies]
+  commitizen = "^2.27.1" # Keep in sync with .pre-commit-config.yaml.
+  pre-commit = "^2.19.0"

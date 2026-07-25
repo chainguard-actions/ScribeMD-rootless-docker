@@ -1,0 +1,40 @@
+name: Test Docker works after rootless setup
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-create rootless Docker context so action detects it as already in-use
+        run: |
+          # Create a fake rootless context pointing at the default socket
+          # This makes the action believe rootless Docker is already installed and in-use,
+          # skipping the systemctl/dockerd-rootless installation steps that require systemd.
+          docker context create rootless \
+            --description "Rootless Docker (pre-created for test)" \
+            --docker "host=unix:///var/run/docker.sock" || true
+          docker context use rootless
+          echo "Docker contexts:"
+          docker context ls
+      - name: Run rootless Docker action
+        uses: .
+      - name: Assert Docker can run a container
+        run: |
+          echo "Running hello-world container..."
+          OUTPUT="$(docker run --rm hello-world 2>&1)"
+          echo "Container output: $OUTPUT"
+          if ! echo "$OUTPUT" | grep --quiet "Hello from Docker"; then
+            echo "FAIL: expected 'Hello from Docker' in container output"
+            exit 1
+          fi
+          echo "PASS: Docker container ran successfully"
+      - name: Assert Docker context is rootless
+        run: |
+          CURRENT_CONTEXT="$(docker info --format "{{ .ClientInfo.Context }}")"
+          echo "Current Docker context: $CURRENT_CONTEXT"
+          if [ "$CURRENT_CONTEXT" != "rootless" ]; then
+            echo "FAIL: expected rootless context, got: $CURRENT_CONTEXT"
+            exit 1
+          fi
+          echo "PASS: Docker is using rootless context"

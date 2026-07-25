@@ -1,0 +1,43 @@
+name: Test rootless Docker action is idempotent
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-create rootless Docker context so action detects it as already in-use
+        run: |
+          # Create a fake rootless context pointing at the default socket
+          # This makes the action believe rootless Docker is already installed and in-use,
+          # skipping the systemctl/dockerd-rootless installation steps that require systemd.
+          docker context create rootless \
+            --description "Rootless Docker (pre-created for test)" \
+            --docker "host=unix:///var/run/docker.sock" || true
+          docker context use rootless
+          echo "Docker contexts:"
+          docker context ls
+          echo "Current context:"
+          docker info --format "{{ .ClientInfo.Context }}"
+      - name: Run rootless Docker action first time
+        uses: .
+      - name: Verify rootless context is active after first run
+        run: |
+          CURRENT_CONTEXT="$(docker info --format "{{ .ClientInfo.Context }}")"
+          echo "Context after first run: $CURRENT_CONTEXT"
+          if [ "$CURRENT_CONTEXT" != "rootless" ]; then
+            echo "FAIL: expected rootless context after first run, got: $CURRENT_CONTEXT"
+            exit 1
+          fi
+          echo "PASS: rootless context active after first run"
+      - name: Run rootless Docker action second time (idempotency check)
+        uses: .
+      - name: Verify rootless context is still active after second run
+        run: |
+          CURRENT_CONTEXT="$(docker info --format "{{ .ClientInfo.Context }}")"
+          echo "Context after second run: $CURRENT_CONTEXT"
+          if [ "$CURRENT_CONTEXT" != "rootless" ]; then
+            echo "FAIL: expected rootless context after second run, got: $CURRENT_CONTEXT"
+            exit 1
+          fi
+          echo "PASS: rootless context still active after second run (idempotent)"
