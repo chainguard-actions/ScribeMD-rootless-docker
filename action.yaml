@@ -51,7 +51,8 @@ runs:
         echo ~/bin >>"$GITHUB_PATH"
         if [[ -z $XDG_RUNTIME_DIR ]]; then
           XDG_RUNTIME_DIR=~/.docker/run
-          echo XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" >>"$GITHUB_ENV"
+          safe_xdg_runtime_dir="$(printf '%s' "$XDG_RUNTIME_DIR" | tr -d '\n\r')"
+          echo "XDG_RUNTIME_DIR=$safe_xdg_runtime_dir" >>"$GITHUB_ENV"
         fi
         function awaitDockerd() {
           while IFS= read -r -t 60 line; do
