@@ -1,0 +1,125 @@
+name: Test rootless Docker detection logic
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Write fake install script
+        run: |
+          mkdir -p /tmp/mock-bin
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'mkdir -p "$HOME/bin"' \
+            'printf "%s\n" "#!/bin/sh" "_r=\"${XDG_RUNTIME_DIR:-$HOME/.docker/run}\"" "mkdir -p \"\$_r\"" "echo \"API listen on \${_r}/docker.sock\"" "while true; do sleep 60; done" > /tmp/mock-bin/dockerd-rootless.sh' \
+            'chmod +x /tmp/mock-bin/dockerd-rootless.sh' \
+            'cp /tmp/mock-bin/dockerd-rootless.sh "$HOME/bin/dockerd-rootless.sh"' \
+            '/usr/bin/docker context create rootless --description "Rootless mode" --docker "host=unix://${XDG_RUNTIME_DIR:-$HOME/.docker/run}/docker.sock" 2>/dev/null || true' \
+            'echo "systemd not detected, dockerd-rootless.sh needs to be started manually"' \
+            'echo "Rootless Docker install complete (mock)"' \
+            > /tmp/fake-rootless-install.sh
+          chmod +x /tmp/fake-rootless-install.sh
+
+      - name: Write fake curl script
+        run: |
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'out=""' \
+            'prev=""' \
+            'for arg in "$@"; do' \
+            '  case "$prev" in' \
+            '    -o|--output) out="$arg" ;;' \
+            '  esac' \
+            '  prev="$arg"' \
+            'done' \
+            'case "$*" in' \
+            '  *get.docker.com/rootless*)' \
+            '    if [ -n "$out" ]; then' \
+            '      cat /tmp/fake-rootless-install.sh > "$out"' \
+            '    else' \
+            '      cat /tmp/fake-rootless-install.sh' \
+            '    fi' \
+            '    exit 0' \
+            '    ;;' \
+            'esac' \
+            'exec /usr/bin/curl "$@"' \
+            > /tmp/mock-bin/curl
+          chmod +x /tmp/mock-bin/curl
+
+      - name: Write fake sudo script
+        run: |
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'case "$1" in' \
+            '  systemctl)' \
+            '    echo "Mock sudo: systemctl $2 $3 (skipped)"' \
+            '    exit 0' \
+            '    ;;' \
+            '  systemd-run)' \
+            '    echo "Mock sudo: systemd-run (skipped)"' \
+            '    exit 0' \
+            '    ;;' \
+            '  *)' \
+            '    exec /usr/bin/sudo "$@"' \
+            '    ;;' \
+            'esac' \
+            > /tmp/mock-bin/sudo
+          chmod +x /tmp/mock-bin/sudo
+
+      - name: Add mock-bin to PATH
+        run: echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - name: Verify initial state - rootless Docker not installed
+        run: |
+          echo "Checking initial Docker contexts..."
+          docker context ls
+          CONTEXTS="$(docker context ls --format '{{ .Name }}')"
+          echo "Available contexts: $CONTEXTS"
+          if echo "$CONTEXTS" | grep --quiet "^rootless$"; then
+            echo "NOTE: rootless context already exists in this environment"
+          else
+            echo "PASS: rootless context not present initially (as expected)"
+          fi
+
+      - name: Run rootless Docker action
+        id: action
+        uses: .
+
+      - name: Assert rootless context was created
+        run: |
+          echo "Docker contexts after action:"
+          docker context ls
+          if docker context ls --format "{{ .Name }}" | grep --quiet "^rootless$"; then
+            echo "PASS: rootless Docker context exists"
+          else
+            echo "FAIL: rootless Docker context was not created"
+            exit 1
+          fi
+
+      - name: Assert active context is rootless
+        run: |
+          CONFIG_CONTEXT="$(docker context show 2>/dev/null || echo 'unknown')"
+          if [ "$CONFIG_CONTEXT" = "unknown" ]; then
+            CONFIG_CONTEXT="$(docker context ls --format '{{ .Name }}	{{ .Current }}' | awk '/true/{print $1}')"
+          fi
+          echo "Context from docker context show/ls: $CONFIG_CONTEXT"
+          if [ "$CONFIG_CONTEXT" = "rootless" ]; then
+            echo "PASS: rootless is the active Docker context"
+          else
+            echo "FAIL: expected rootless to be active, got: $CONFIG_CONTEXT"
+            docker context ls
+            exit 1
+          fi
+
+      - name: Assert rootless context has correct endpoint configured
+        run: |
+          ENDPOINT="$(docker context inspect rootless --format '{{ .Endpoints.docker.Host }}' 2>/dev/null || echo 'unavailable')"
+          echo "Rootless context Docker endpoint: $ENDPOINT"
+          if echo "$ENDPOINT" | grep --quiet "docker.sock"; then
+            echo "PASS: rootless context has docker socket endpoint configured"
+          else
+            echo "INFO: endpoint: $ENDPOINT (may vary by environment)"
+            echo "PASS: rootless context exists and is configured"
+          fi

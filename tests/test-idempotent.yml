@@ -1,0 +1,67 @@
+name: Test rootless Docker idempotency (already installed and in-use)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Pre-create rootless Docker context so action detects it as installed and in-use
+        run: |
+          # Create a fake rootless Docker context so the action skips
+          # the systemd-dependent install and proxy steps (which require
+          # systemd, unavailable under act).
+          mkdir -p ~/.docker/run
+          docker context create rootless \
+            --description "Rootless Docker" \
+            --docker "host=unix://${HOME}/.docker/run/docker.sock" \
+            2>/dev/null || true
+          # Switch to rootless context so in-use=true
+          docker context use rootless || true
+          echo "Docker contexts:"
+          docker context ls
+
+      - name: First run - rootless Docker already installed and in-use
+        id: first-run
+        uses: .
+
+      - name: Assert rootless context exists after first run
+        run: |
+          if ! docker context ls --format "{{ .Name }}" | grep --quiet "^rootless$"; then
+            echo "FAIL: rootless Docker context not found after first run"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context exists after first run"
+
+      - name: Assert rootless context is still in use after first run
+        run: |
+          CURRENT=$(docker context show)
+          echo "current context after first run: $CURRENT"
+          if [ "$CURRENT" != "rootless" ]; then
+            echo "FAIL: expected rootless context to be in use after first run, got '$CURRENT'"
+            exit 1
+          fi
+          echo "PASS: rootless context is in use after first run"
+
+      - name: Second run - rootless Docker still installed and in-use
+        id: second-run
+        uses: .
+
+      - name: Assert rootless context exists after second run
+        run: |
+          if ! docker context ls --format "{{ .Name }}" | grep --quiet "^rootless$"; then
+            echo "FAIL: rootless Docker context not found after second run"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context exists after second run"
+
+      - name: Assert rootless context is still in use after second run
+        run: |
+          CURRENT=$(docker context show)
+          echo "current context after second run: $CURRENT"
+          if [ "$CURRENT" != "rootless" ]; then
+            echo "FAIL: expected rootless context to be in use after second run, got '$CURRENT'"
+            exit 1
+          fi
+          echo "PASS: rootless context is in use after second run"
