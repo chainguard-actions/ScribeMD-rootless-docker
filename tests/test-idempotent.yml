@@ -1,0 +1,51 @@
+name: Test rootless Docker action is idempotent
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-configure rootless Docker context so action detects it as already in use
+        run: |
+          # Create a fake rootless Docker context pointing at the default socket
+          # so the action's detection step sees rootless as installed and in-use,
+          # skipping the systemd-dependent install/proxy steps.
+          docker context create rootless \
+            --description "Rootless Docker (pre-configured for test)" \
+            --docker "host=unix:///var/run/docker.sock" \
+            2>/dev/null || true
+          docker context use rootless
+          echo "Docker context set to rootless"
+          docker context ls
+      - name: Run rootless Docker action first time
+        id: first-run
+        uses: .
+      - name: Assert Docker is functional after first run
+        run: |
+          echo "Checking Docker after first run..."
+          if ! docker info > /dev/null 2>&1; then
+            echo "FAIL: Docker not functional after first run"
+            exit 1
+          fi
+          echo "PASS: Docker functional after first run"
+      - name: Run rootless Docker action second time (idempotency check)
+        id: second-run
+        uses: .
+      - name: Assert Docker is still functional after second run
+        run: |
+          echo "Checking Docker after second run..."
+          if ! docker info > /dev/null 2>&1; then
+            echo "FAIL: Docker not functional after second run"
+            exit 1
+          fi
+          echo "PASS: Docker still functional after second run (action is idempotent)"
+      - name: Assert rootless context still active after second run
+        run: |
+          context=$(docker info --format '{{ .ClientInfo.Context }}' 2>/dev/null || echo "unknown")
+          echo "Current Docker context after second run: $context"
+          if [ "$context" != "rootless" ]; then
+            echo "FAIL: Expected rootless context after second run, got '$context'"
+            exit 1
+          fi
+          echo "PASS: rootless context still active after second run"

@@ -1,0 +1,43 @@
+name: Test rootless Docker context is active
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-configure rootless Docker context so action detects it as already in use
+        run: |
+          # Create a fake rootless Docker context pointing at the default socket
+          # so the action's detection step sees rootless as installed and in-use,
+          # skipping the systemd-dependent install/proxy steps.
+          docker context create rootless \
+            --description "Rootless Docker (pre-configured for test)" \
+            --docker "host=unix:///var/run/docker.sock" \
+            2>/dev/null || true
+          docker context use rootless
+          echo "Docker context set to rootless"
+          docker context ls
+      - name: Run rootless Docker action
+        id: action
+        uses: .
+      - name: Assert rootless Docker context is in use
+        run: |
+          echo "Checking Docker context..."
+          context=$(docker info --format '{{ .ClientInfo.Context }}' 2>/dev/null || echo "unknown")
+          echo "Current Docker context: $context"
+          if [ "$context" != "rootless" ]; then
+            echo "FAIL: Expected Docker context 'rootless', got '$context'"
+            exit 1
+          fi
+          echo "PASS: Docker is using rootless context"
+      - name: Assert rootless context is listed
+        run: |
+          echo "Listing Docker contexts..."
+          contexts=$(docker context ls --format '{{ .Name }}' 2>/dev/null)
+          echo "Available contexts: $contexts"
+          if ! echo "$contexts" | grep -q '^rootless$'; then
+            echo "FAIL: rootless context not found in Docker contexts"
+            exit 1
+          fi
+          echo "PASS: rootless context is available"

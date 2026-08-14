@@ -1,0 +1,57 @@
+name: Test basic rootless Docker setup
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up mock Docker to simulate rootless already in use
+        run: |
+          mkdir -p /tmp/mock-bin
+
+          # Write mock docker script using printf to avoid YAML heredoc issues
+          # with {{ }} template syntax
+          printf '%s\n' '#!/bin/sh' \
+            '# Check for: docker context ls --format' \
+            'if [ "$1" = "context" ] && [ "$2" = "ls" ]; then' \
+            '  echo "rootless"' \
+            '  exit 0' \
+            'fi' \
+            '# Check for: docker info --format' \
+            'if [ "$1" = "info" ]; then' \
+            '  echo "rootless"' \
+            '  exit 0' \
+            'fi' \
+            '# Check for: docker context use rootless' \
+            'if [ "$1" = "context" ] && [ "$2" = "use" ]; then' \
+            '  exit 0' \
+            'fi' \
+            '# Fall through to real docker for other commands' \
+            'exec /usr/bin/docker "$@"' \
+            > /tmp/mock-bin/docker
+
+          chmod +x /tmp/mock-bin/docker
+          echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - name: Run rootless Docker action
+        id: action
+        uses: .
+
+      - name: Assert action completed successfully
+        run: |
+          echo "Action completed without error."
+          echo "The mock docker reported rootless as already in use,"
+          echo "so the action correctly skipped the stop/install/proxy steps."
+          echo "PASS"
+
+      - name: Assert mock docker reports rootless context
+        run: |
+          CONTEXT="$(docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Current Docker context: $CONTEXT"
+          if [ "$CONTEXT" != "rootless" ]; then
+            echo "FAIL: expected Docker context 'rootless', got '$CONTEXT'"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context is active"

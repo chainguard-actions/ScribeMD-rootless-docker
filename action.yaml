@@ -66,11 +66,10 @@ runs:
           --fail \
           --silent \
           --show-error \
-          --location https://get.docker.com/rootless \
-          --output /tmp/rootless-docker-install.sh
-        chmod +x /tmp/rootless-docker-install.sh
+          --location \
+          --output /tmp/rootless-docker-install.sh \
+          https://get.docker.com/rootless
         install_script_output="$(sh /tmp/rootless-docker-install.sh)"
-        rm -f /tmp/rootless-docker-install.sh
         echo "$install_script_output"
         docker context use rootless
         if grep --quiet 'systemd not detected, dockerd-rootless.sh needs to be started manually' <<<"$install_script_output"; then
