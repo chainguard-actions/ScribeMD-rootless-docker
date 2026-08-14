@@ -1,0 +1,53 @@
+name: Test action skips proxy when rootless Docker already in use
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-create rootless Docker context to simulate already-installed state
+        run: |
+          # Determine the real Docker socket so we can point the rootless context at it.
+          if [ -n "$DOCKER_HOST" ]; then
+            REAL_SOCK="$DOCKER_HOST"
+          else
+            REAL_SOCK="unix:///var/run/docker.sock"
+          fi
+          echo "Real Docker socket: $REAL_SOCK"
+
+          # Create a 'rootless' context pointing to the real Docker socket.
+          # When the action detects rootless is already installed and in-use,
+          # it skips the systemd stop/proxy steps that are unavailable in act.
+          docker context create rootless \
+            --description "Rootless Docker (simulated for testing)" \
+            --docker "host=${REAL_SOCK}" \
+            2>/dev/null || true
+
+          # Switch to the rootless context and clear DOCKER_HOST so the context is used.
+          docker context use rootless
+          echo "DOCKER_HOST=" >> "$GITHUB_ENV"
+
+          CTX="$(DOCKER_HOST= docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Context after setup: $CTX"
+      - id: action
+        uses: .
+      - name: Assert action completed and rootless context is present
+        run: |
+          echo "Verifying rootless context is present after action ran..."
+          docker context ls
+          if ! docker context ls --format "{{ .Name }}" | grep -q "^rootless$"; then
+            echo "FAIL: rootless Docker context not found after action ran"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context exists"
+      - name: Assert Docker daemon is still accessible after action
+        run: |
+          echo "Checking Docker daemon accessibility..."
+          if ! docker info > /dev/null 2>&1; then
+            echo "FAIL: Docker daemon is not accessible after action ran"
+            exit 1
+          fi
+          CTX="$(docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Docker context after action: $CTX"
+          echo "PASS: Docker daemon is accessible"

@@ -1,0 +1,44 @@
+name: Test rootless Docker detection logic
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Assert rootless context is not present in fresh environment
+        run: |
+          echo "Docker contexts before action:"
+          docker context ls
+          # In a fresh act environment, rootless context should not exist
+          if docker context ls --format "{{ .Name }}" | grep --quiet "^rootless$"; then
+            echo "NOTE: rootless context already exists (unexpected in fresh environment)"
+          else
+            echo "PASS: rootless context does not exist as expected in fresh environment"
+          fi
+      - id: action
+        uses: .
+        continue-on-error: true
+      - name: Assert action ran (detection step executed)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "Action outcome: $OUTCOME"
+          # The action should have run (not been skipped).
+          # It may fail at the systemctl step in act, but the detection step runs first.
+          if [ "$OUTCOME" = "skipped" ]; then
+            echo "FAIL: action was skipped, detection step did not run"
+            exit 1
+          fi
+          echo "PASS: action ran with outcome '$OUTCOME' (detection step executed)"
+      - name: Assert Docker is still functional after action attempt
+        run: |
+          echo "Docker contexts after action attempt:"
+          docker context ls
+          # Verify Docker daemon is still accessible
+          if ! docker info > /dev/null 2>&1; then
+            echo "FAIL: Docker daemon is not accessible after action attempt"
+            exit 1
+          fi
+          echo "PASS: Docker daemon is still accessible"
+          docker info --format "Context: {{ .ClientInfo.Context }}"

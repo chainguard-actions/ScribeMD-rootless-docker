@@ -1,0 +1,13 @@
+name: Notify Assignee
+on:
+  pull_request:
+    types:
+      - assigned
+permissions: {}
+jobs:
+  notify-assignee:
+    name: Notify Assignee
+    uses: ScribeMD/slack-templates/.github/workflows/notify-assignee.yaml@6ad4cc1a99244b41714352c0025b40a9e90ccb25 # 0.6.2
+    secrets:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_ASSIGN_CHANNEL_ID: ${{ secrets.SLACK_ASSIGN_CHANNEL_ID }}

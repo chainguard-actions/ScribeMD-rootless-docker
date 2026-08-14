@@ -1,0 +1,13 @@
+name: Notify Reviewers
+on:
+  pull_request:
+    types:
+      - review_requested
+permissions: {}
+jobs:
+  notify-reviewers:
+    name: Notify Reviewers
+    uses: ScribeMD/slack-templates/.github/workflows/notify-reviewers.yaml@6ad4cc1a99244b41714352c0025b40a9e90ccb25 # 0.6.2
+    secrets:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_REVIEW_CHANNEL_ID: ${{ secrets.SLACK_REVIEW_CHANNEL_ID }}

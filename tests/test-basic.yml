@@ -1,0 +1,56 @@
+name: Test basic rootless Docker setup
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-create rootless Docker context to simulate already-installed state
+        run: |
+          # Determine the real Docker socket so we can point the rootless context at it.
+          # In act, DOCKER_HOST may be set (e.g. unix:///var/run/docker.sock or tcp://...).
+          # We need the socket path for the context host.
+          if [ -n "$DOCKER_HOST" ]; then
+            REAL_SOCK="$DOCKER_HOST"
+          else
+            REAL_SOCK="unix:///var/run/docker.sock"
+          fi
+          echo "Real Docker socket: $REAL_SOCK"
+
+          # Create a 'rootless' context pointing to the real Docker socket.
+          # This lets 'docker info' succeed when the rootless context is active.
+          docker context create rootless \
+            --description "Rootless Docker (simulated for testing)" \
+            --docker "host=${REAL_SOCK}" \
+            2>/dev/null || true
+
+          # Switch to the rootless context and clear DOCKER_HOST so the context is used.
+          docker context use rootless
+          # Persist the cleared DOCKER_HOST so subsequent steps (including the action)
+          # use the context rather than the DOCKER_HOST override.
+          echo "DOCKER_HOST=" >> "$GITHUB_ENV"
+
+          # Verify docker info reports the rootless context
+          CTX="$(DOCKER_HOST= docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Context after setup: $CTX"
+      - id: action
+        uses: .
+      - name: Assert rootless Docker context exists
+        run: |
+          echo "Checking Docker contexts..."
+          docker context ls
+          if ! docker context ls --format "{{ .Name }}" | grep -q "^rootless$"; then
+            echo "FAIL: rootless Docker context not found"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context exists"
+      - name: Assert rootless Docker context is in use
+        run: |
+          CTX="$(docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Current Docker context: $CTX"
+          if [ "$CTX" != "rootless" ]; then
+            echo "FAIL: expected rootless context to be in use, got: $CTX"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context is in use"

@@ -1,0 +1,30 @@
+name: Test
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-20.04
+    permissions:
+      contents: write # for pre-commit-action
+    steps:
+      - name: Check out repository.
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v3.0.2
+        with:
+          fetch-depth: 0
+      - name: Use Docker in rootless mode.
+        uses: ./
+      - name: Run pre-commit hooks.
+        uses: ScribeMD/pre-commit-action@470a5b90295d8adf9fc3a344d276c6caaf11c530 # 0.8.6
+      - name: Send Slack notification with job status.
+        if: always()
+        uses: ScribeMD/slack-templates@6ad4cc1a99244b41714352c0025b40a9e90ccb25 # 0.6.2
+        with:
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel-id: ${{ secrets.SLACK_ACTIONS_CHANNEL_ID }}
+          template: result

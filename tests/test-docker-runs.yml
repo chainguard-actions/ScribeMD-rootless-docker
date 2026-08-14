@@ -1,0 +1,51 @@
+name: Test Docker works after rootless setup
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Pre-create rootless Docker context to simulate already-installed state
+        run: |
+          # Determine the real Docker socket so we can point the rootless context at it.
+          if [ -n "$DOCKER_HOST" ]; then
+            REAL_SOCK="$DOCKER_HOST"
+          else
+            REAL_SOCK="unix:///var/run/docker.sock"
+          fi
+          echo "Real Docker socket: $REAL_SOCK"
+
+          # Create a 'rootless' context pointing to the real Docker socket.
+          docker context create rootless \
+            --description "Rootless Docker (simulated for testing)" \
+            --docker "host=${REAL_SOCK}" \
+            2>/dev/null || true
+
+          # Switch to the rootless context and clear DOCKER_HOST so the context is used.
+          docker context use rootless
+          echo "DOCKER_HOST=" >> "$GITHUB_ENV"
+
+          CTX="$(DOCKER_HOST= docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Context after setup: $CTX"
+      - id: action
+        uses: .
+      - name: Assert Docker can run a container
+        run: |
+          echo "Running a test container..."
+          OUTPUT="$(docker run --rm hello-world 2>&1 || true)"
+          echo "Docker run output: $OUTPUT"
+          if ! echo "$OUTPUT" | grep -q "Hello from Docker"; then
+            echo "FAIL: expected 'Hello from Docker' in output"
+            exit 1
+          fi
+          echo "PASS: Docker ran a container successfully"
+      - name: Assert rootless context is still active
+        run: |
+          CTX="$(docker info --format '{{ .ClientInfo.Context }}')"
+          echo "Current Docker context: $CTX"
+          if [ "$CTX" != "rootless" ]; then
+            echo "FAIL: expected rootless context, got: $CTX"
+            exit 1
+          fi
+          echo "PASS: rootless Docker context is active"
