@@ -70,7 +70,10 @@ runs:
           --show-error \
           --location https://get.docker.com/rootless \
           --output "$install_script"
-        chmod +x "$install_script"
+        if [[ ! -s "$install_script" ]] || ! head -n 1 "$install_script" | grep -q '^#!'; then
+          echo 'Downloaded rootless Docker install script is empty or invalid.' >&2
+          exit 1
+        fi
         install_script_output="$(sh "$install_script")"
         rm -f "$install_script"
         echo "$install_script_output"
@@ -85,6 +88,12 @@ runs:
     - name: Proxy bidirectionally between rootful and rootless Docker sockets.
       if: steps.rootless-docker.outputs.IN_USE != 'true'
       run: >
-        sudo systemd-run --unit=docker-proxy.service --description='Bidirectional proxy between rootful and rootless Docker sockets' --service-type=exec --property=Requires=docker.socket --property=PrivateNetwork=true --property=PrivateTmp=true /lib/systemd/systemd-socket-proxyd "$XDG_RUNTIME_DIR/docker.sock"
-
+        sudo systemd-run
+        --unit=docker-proxy.service
+        --description='Bidirectional proxy between rootful and rootless Docker sockets'
+        --service-type=exec
+        --property=Requires=docker.socket
+        --property=PrivateNetwork=true
+        --property=PrivateTmp=true
+        /lib/systemd/systemd-socket-proxyd "$XDG_RUNTIME_DIR/docker.sock"
       shell: bash
