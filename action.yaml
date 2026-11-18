@@ -49,7 +49,7 @@ runs:
       if: steps.rootless-docker.outputs.INSTALLED != 'true'
       run: |
         echo ~/bin >>"$GITHUB_PATH"
-        if [[ -z $XDG_RUNTIME_DIR ]]; then
+        if [[ -z "$XDG_RUNTIME_DIR" ]]; then
           XDG_RUNTIME_DIR=~/.docker/run
           echo XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" >>"$GITHUB_ENV"
         fi
@@ -62,14 +62,20 @@ runs:
           return 1
         }
 
+        install_script="$(mktemp)"
         curl \
           --fail \
           --silent \
           --show-error \
           --location \
-          --output /tmp/rootless-docker-install.sh \
+          --output "$install_script" \
           https://get.docker.com/rootless
-        install_script_output="$(sh /tmp/rootless-docker-install.sh)"
+        if [[ ! -s "$install_script" ]]; then
+          echo 'Downloaded rootless Docker install script is empty.' >&2
+          exit 1
+        fi
+        install_script_output="$(sh "$install_script")"
+        rm -f "$install_script"
         echo "$install_script_output"
         docker context use rootless
         if grep --quiet 'systemd not detected, dockerd-rootless.sh needs to be started manually' <<<"$install_script_output"; then
@@ -82,6 +88,12 @@ runs:
     - name: Proxy bidirectionally between rootful and rootless Docker sockets.
       if: steps.rootless-docker.outputs.IN_USE != 'true'
       run: >
-        sudo systemd-run --unit=docker-proxy.service --description='Bidirectional proxy between rootful and rootless Docker sockets' --service-type=exec --property=Requires=docker.socket --property=PrivateNetwork=true --property=PrivateTmp=true /lib/systemd/systemd-socket-proxyd "$XDG_RUNTIME_DIR/docker.sock"
-
+        sudo systemd-run
+        --unit=docker-proxy.service
+        --description='Bidirectional proxy between rootful and rootless Docker sockets'
+        --service-type=exec
+        --property=Requires=docker.socket
+        --property=PrivateNetwork=true
+        --property=PrivateTmp=true
+        /lib/systemd/systemd-socket-proxyd "$XDG_RUNTIME_DIR/docker.sock"
       shell: bash
